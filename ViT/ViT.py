@@ -2,6 +2,7 @@ import torch
 from torch import nn
 from einops import rearrange, repeat
 
+
 class FeedForward(nn.Module):
     def __init__(self, dim, hidden_dim, dropout=0.):
         super().__init__()
@@ -39,8 +40,7 @@ class Attention(nn.Module):
     def forward(self, x):
         x = self.norm(x) # B X N X D
         qkv = self.to_qkv(x).chunk(3, dim=-1) # 3 X [B X N X (heads X Dim_heads)]
-        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=self.heads), qkv) # B X heads X N X Dim_heads
-        
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=self.heads), qkv)  # B X heads X N X Dim_heads
         dots = q @ k.transpose(-1, -2) * self.scale # B X heads X N X N
         att = self.softmax(dots)
         att = self.dropout(att)
@@ -62,7 +62,6 @@ class Transformer(nn.Module):
                 Attention(dim, heads, dim_heads, dropout),
                 FeedForward(dim, mlp_dim, dropout)
             ))
-
 
     def forward(self, x):
         for attn, ff in self.layers:
