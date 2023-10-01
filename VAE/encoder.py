@@ -1,4 +1,3 @@
-import torch
 import torch.nn as nn
 
 
@@ -43,25 +42,6 @@ class Encoder(nn.Module):
         )
         self.flatten_size = 8 * 8 * 512
 
-    def sampling(self, inputs):
-        """
-        Reparameterization trick to sample from N(z_mu, z_var) from N(0,1).
-
-        --------
-        Parameters:
-            inputs : array [z_mu, z_log_var]
-                mean, var of latent space
-        -------
-        Returns:
-            z : Tensor. shape (B x D)
-                z = z_mean + z_sigma * epsilon
-                z_sigma = exp(z_log_var * 0.5)
-        """
-        z_mean, z_log_var = inputs
-        epsilon = torch.randn(torch.size(z_mean)[0], torch.size(z_mean)[1])
-
-        return z_mean + torch.exp(0.5 * z_log_var) * epsilon
-
     def forward(self, x):
         for layer in self.encoder_layers:
             x = layer(x)
@@ -69,6 +49,5 @@ class Encoder(nn.Module):
         x = x.reshape(-1, self.flatten_size)
         z_mean = self.z_mean(x)
         z_log_var = self.z_log_var(x)
-        z = self.sampling([z_mean, z_log_var])
 
-        return z, z_mean, z_log_var, size
+        return z_mean, z_log_var, size
