@@ -7,7 +7,8 @@ from torch.cuda.amp import autocast
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 import pytorch_lightning as pl
-from util import *
+from utils import *
+from Unet import Unet
 
 
 class GaussianDiffusion(pl.LightningModule):

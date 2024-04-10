@@ -18,13 +18,18 @@ https://velog.io/@rlaalsthf02/3-Variational-Inference-1
 
 ## Diffusions
 
-* ### DDPM (Denoising Diffusion Probabilistic Models)
+* ### DDPM (Denoising Diffusion Probabilistic Models) (작성 중)
 **Authors**: Jonathan Ho, Ajay Jain, Pieter Abbeel 
 **Year**: 2020    
 **Paper Link**: [https://arxiv.org/pdf/1312.6114.pdf   ](https://arxiv.org/pdf/2006.11239.pdf)   
 **Descriptions**: Forward process로 이미지를 std 분포의 noise로 매핑한 후에, Reverse process에서 density model을 활용하여 noise를 denoising하여 이미지를 생성해내는 모델입니다.   
 
 https://velog.io/@rlaalsthf02/Denoising-Diffusion-Probabilitic-ModelsDDPM
+
+
+**참고 코드**   
+* https://github.com/lucidrains/denoising-diffusion-pytorch/tree/main   
+* https://github.com/CompVis/latent-diffusion/tree/main
 
 <br>
 <br/>
@@ -38,6 +43,10 @@ https://velog.io/@rlaalsthf02/Denoising-Diffusion-Probabilitic-ModelsDDPM
 **Descriptions**: position(xyz) 값과 viewing direction으로 pixel color(rgb)를 예측하는 Fully-connected Network를 사용하여 2D image를 3D 렌더링하는 모델입니다.
 
 https://velog.io/@rlaalsthf02/NeRF
+
+
+**참고 코드**   
+* https://github.com/yenchenlin/nerf-pytorch
 
 <br>
 <br/>
