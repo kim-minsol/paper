@@ -46,20 +46,8 @@ class Downsample(nn.Module):
         assert x.shape[1] == self.channels
         return self.layer(x)
 
-    def forward(self, x):
-        assert x.shape[1] == self.channels
-        if self.dims == 3:
-            x = F.interpolate(
-                x, (x.shapep[2], x.shape[3] * 2, x.shape[4] * 2), mode = "nearest"
-            )
-        else:
-            x = F.interpolate(x, scale_factor = 2, mode = "nearest")
-        if self.use_conv:
-            x = self.conv(x)
-        return x
 
-
-class TimestepBlock(nn.Module): # 꼭 필요한 class인지...?
+class TimestepBlock(nn.Module):
     """
     Any module where forward() takes timestep embeddings as a second argument.
     """
@@ -68,14 +56,11 @@ class TimestepBlock(nn.Module): # 꼭 필요한 class인지...?
         Apply the module to `x` given `emb` timestep embeddings.
         """
 
-
 class SpatialTransforemr(nn.Module): # use for image-to-image task
     """
-    Any module where forward() takes timestep embeddings as a second argument.
     """
     def forward(self, x, context):
         """
-        Apply the module to `x` given `emb` timestep embeddings.
         """
 
 
@@ -91,7 +76,7 @@ class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
         return x
 
 
-class ResnetBlock(nn.Module):
+class ResnetBlock(TimestepBlock):
     def __init__(self,
                  channels,
                  emb_channels,
@@ -135,7 +120,7 @@ class ResnetBlock(nn.Module):
               nn.SiLU(),
               nn.Dropout(p=dropout),
               zero_module(
-                  conv_nd(dims, channels, out_channels, 3, padding=1)
+                  conv_nd(dims, out_channels, out_channels, 3, padding=1)
               ),
         )
 
@@ -167,7 +152,6 @@ class ResnetBlock(nn.Module):
         else:
             h = h + emb_out
             h = self.out_layers(h)
-
         return self.skip_connection(x) + h
 
 
@@ -190,21 +174,23 @@ class QKVAttention(nn.Module):
     """
     QKV attention which splits heads before qkv
     """
-    def __init__(self, heads):
+    def __init__(self, n_heads):
         super().__init__()
-        self.n_heads = heads
+        self.n_heads = n_heads
 
     def forward(self, qkv):
         batch_size, w, length = qkv.shape # (B x (H * 3 * C) x T)
         assert w % (3 * self.n_heads) == 0 # split heads 가능한지 확인!
-        ch = w // (3 * self.n.heads)
+        ch = w // (3 * self.n_heads)
         q, k, v = qkv.reshape(batch_size * self.n_heads, ch * 3, length).split(ch, dim=1) # (B * n_heads, ch, length)
         scale = 1. / math.sqrt(math.sqrt(ch))
         weight = torch.einsum(
             "bct,bcs->bts", q * scale, k * scale
         )
         weight = torch.softmax(weight.float(), dim=-1).type(weight.dtype)
+
         attn = torch.einsum("bts,bcs->bct", weight, v)
+
         return attn.reshape(batch_size, -1, length)
 
 
@@ -214,7 +200,7 @@ class AttentionBlock(nn.Module):
     """
     def __init__(self,
                  channels,
-                 num_heads=1,
+                 num_heads=-1,
                  num_head_ch=-1,
                  use_checkpoint=False
                  ):
@@ -222,7 +208,7 @@ class AttentionBlock(nn.Module):
 
         # setting hyperparameters
         self.ch = channels
-        if num_heads != 1:
+        if num_heads == -1:
             assert channels % num_head_ch == 0
             self.n_heads = channels // num_head_ch
         else:
@@ -234,13 +220,13 @@ class AttentionBlock(nn.Module):
         self.attention = QKVAttention(self.n_heads)
         self.proj_out = zero_module(conv_nd(1, channels, channels, 1))
 
-        def forward(self, x):
-            b, c, *spatial = x.shape
-            x = x.reshape(b, c, -1)
-            qkv = self.qkv(self.norm(x))
-            h = self.attention(qkv)
-            h = self.proj_out(h)
-            return (x + h).reshape(b, c, *spatial)
+    def forward(self, x):
+        b, c, *spatial = x.shape
+        x = x.reshape(b, c, -1)
+        qkv = self.qkv(self.norm(x))
+        h = self.attention(qkv) # (B x (H * C) x T)
+        h = self.proj_out(h)
+        return (x + h).reshape(b, c, *spatial)
 
 
 class Unet(nn.Module):
@@ -263,9 +249,10 @@ class Unet(nn.Module):
                  conv_resample=True,
                  ):
         '''
-        input_channels: dim of inputs.
+        input_channels: dim of inputs. (if image: 3)
         model_channels: dim of model in initial.
-        channel_mults:
+        out_channels: dim of outputs (if image: 3)
+        channel_mults: makes Unet structure
         dims: signal is 1D or 2D or 3D.
         resnet_groups: groups of normalization.
         attn_heads / attn_dim_head: num of heads, head dimension in AttentionBlock.
@@ -278,12 +265,15 @@ class Unet(nn.Module):
         super().__init__()
 
         self.model_channels = model_channels
-        self.dtype = torch.float16
+        self.dtype = torch.float32
         self.use_conv_upsample = conv_resample
         self.use_conv_downsample = conv_resample
 
         # Attention: num_heads or num_head_channels 지정하기
-        assert attn_heads and attn_dim_head == -1
+        if attn_heads == -1:
+            assert attn_dim_head != -1
+        if attn_dim_head == -1:
+            assert attn_heads != -1
 
         # position embedding
         time_dim = model_channels * 4
@@ -298,10 +288,12 @@ class Unet(nn.Module):
 
 
         self.input_blocks = nn.ModuleList(
+            [
             TimestepEmbedSequential(
                 conv_nd(dims, input_channels, model_channels, 3, padding=1)
-            )
-        )
+                )
+            ]
+          )
 
         input_block_channels = [model_channels]
         ch = model_channels
@@ -313,7 +305,7 @@ class Unet(nn.Module):
                         ch,
                         time_dim,
                         dropout,
-                        out_channels = mult * ch,
+                        out_channels = mult * model_channels,
                         dims = dims,
                         use_checkpoint = use_checkpoint,
                         use_scale_shift_norm = use_scale_shift_norm,
@@ -322,9 +314,9 @@ class Unet(nn.Module):
                 ch = mult * model_channels
                 if ds in attn_resolutions:
                     if attn_heads == -1:
-                        attn_dim_head = ch // attn_heads
-                    else:
                         attn_heads = ch // attn_dim_head
+                    else:
+                        attn_dim_head = ch // attn_heads
                     layers.append(
                         AttentionBlock(
                             ch,
@@ -335,7 +327,7 @@ class Unet(nn.Module):
                     )
                 self.input_blocks.append(TimestepEmbedSequential(*layers))
                 input_block_channels.append(ch)
-            
+
             if level != len(channel_mults) -1:
                 out_ch = ch
                 self.input_blocks.append(
@@ -344,7 +336,7 @@ class Unet(nn.Module):
                             ch,
                             time_dim,
                             dropout,
-                            out_channels = mult * ch,
+                            out_channels = out_ch,
                             dims = dims,
                             use_checkpoint = use_checkpoint,
                             use_scale_shift_norm = use_scale_shift_norm,
@@ -358,12 +350,15 @@ class Unet(nn.Module):
                 ch = out_ch
                 input_block_channels.append(ch)
                 ds *= 2
-        
+
+        self.input_blk_chs = input_block_channels
+        self.tmp = ch
+
         if attn_heads == -1:
             attn_dim_head = ch // attn_heads
         else:
             attn_heads = ch // attn_dim_head
-        
+
         self.middle_block = TimestepEmbedSequential(
             ResnetBlock(
                 ch,
@@ -409,9 +404,9 @@ class Unet(nn.Module):
                 ch = mult * model_channels
                 if ds in attn_resolutions:
                     if attn_heads == -1:
-                        attn_dim_head = ch // attn_heads
-                    else:
                         attn_heads = ch // attn_dim_head
+                    else:
+                        attn_dim_head = ch // attn_heads
                     layers.append(
                         AttentionBlock(
                             ch,
@@ -439,7 +434,7 @@ class Unet(nn.Module):
                     )
                     ds //= 2
                 self.output_blocks.append(TimestepEmbedSequential(*layers))
-        
+
         self.out = nn.Sequential(
             nn.GroupNorm(32, ch),
             nn.SiLU(),
@@ -447,24 +442,24 @@ class Unet(nn.Module):
                   conv_nd(dims, model_channels, out_channels, 3, padding=1)
               ),
         )
-    
+
     def forward(self, x, timesteps, x_self_cond=None):
         t_emb = timestep_embedding(timesteps, self.model_channels)
         emb = self.time_mlp(t_emb)
 
         hs = []
+        sizes = []
         h = x.type(self.dtype)
+        cnt = 1
         for module in self.input_blocks:
             h = module(h, emb)
+            sizes.append(h.size())
             hs.append(h)
         h = self.middle_block(h, emb)
         for module in self.output_blocks:
             h = torch.cat([h, hs.pop()], dim=1)
             h = module(h, emb)
+            cnt += 1
         h = h.type(x.dtype)
 
         return self.out(h)
-
-        ### TODO 1.  Training iteration 돌려보기 !!
-        ### TODO 2.  Training 시 log 작성하기 !!
-        ### TODO 3.  x_self_cond 구현하기 !!
